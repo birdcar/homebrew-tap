@@ -1,13 +1,14 @@
 name: Update Formula
 
 on:
-  repository_dispatch:
-    types: [release]
+  schedule:
+    # Check for new releases daily at 6am UTC
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to update to (e.g., v0.1.13)'
-        required: true
+        description: 'Version to update to (e.g., v0.1.13). Leave empty to auto-detect latest.'
+        required: false
 
 jobs:
   update:
@@ -18,37 +19,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get and validate version
-        id: version
+      - name: Get current formula version
+        id: current
+        run: |
+          CURRENT=$(grep 'version "' Formula/birdhouse.rb | head -1 | sed 's/.*version "\([^"]*\)".*/\1/')
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT"
+
+      - name: Get latest release version
+        id: latest
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
-          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
         run: |
           if [ -n "$INPUT_VERSION" ]; then
-            VERSION="$INPUT_VERSION"
+            # Manual override provided
+            LATEST="$INPUT_VERSION"
           else
-            VERSION="$PAYLOAD_VERSION"
+            # Fetch latest release from GitHub API
+            LATEST=$(gh release view --repo birdcar/birdhouse --json tagName -q '.tagName')
+          fi
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest version: $LATEST"
+
+      - name: Check if update needed
+        id: check
+        env:
+          CURRENT: ${{ steps.current.outputs.version }}
+          LATEST: ${{ steps.latest.outputs.version }}
+        run: |
+          # Strip 'v' prefix for comparison
+          LATEST_NUM="${LATEST#v}"
+          if [ "$CURRENT" = "$LATEST_NUM" ]; then
+            echo "Formula is up to date (v$CURRENT)"
+            echo "needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Update needed: v$CURRENT -> $LATEST"
+            echo "needed=true" >> $GITHUB_OUTPUT
           fi
 
-          # Validate version format (v followed by semver-like: v1.2.3)
+      - name: Validate version format
+        if: steps.check.outputs.needed == 'true'
+        env:
+          VERSION: ${{ steps.latest.outputs.version }}
+        run: |
           if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
             echo "Error: Invalid version format: $VERSION"
             echo "Expected format: v1.2.3 or v1.2.3-beta.1"
             exit 1
           fi
 
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Download checksums
+        if: steps.check.outputs.needed == 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.latest.outputs.version }}
         run: |
           curl -fsSL "https://github.com/birdcar/birdhouse/releases/download/${VERSION}/SHA256SUMS" -o SHA256SUMS
           cat SHA256SUMS
 
       - name: Update formula
+        if: steps.check.outputs.needed == 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.latest.outputs.version }}
         run: |
           VERSION_NUM="${VERSION#v}"
 
@@ -119,8 +151,9 @@ jobs:
           cat Formula/birdhouse.rb
 
       - name: Commit and push
+        if: steps.check.outputs.needed == 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.latest.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
