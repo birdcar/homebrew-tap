@@ -1,0 +1,130 @@
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update to (e.g., v0.1.13)'
+        required: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get and validate version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="$PAYLOAD_VERSION"
+          fi
+
+          # Validate version format (v followed by semver-like: v1.2.3)
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "Error: Invalid version format: $VERSION"
+            echo "Expected format: v1.2.3 or v1.2.3-beta.1"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          curl -fsSL "https://github.com/birdcar/birdhouse/releases/download/${VERSION}/SHA256SUMS" -o SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          VERSION_NUM="${VERSION#v}"
+
+          # Extract checksums
+          DARWIN_ARM64_SHA=$(grep "bh-darwin-arm64$" SHA256SUMS | cut -d' ' -f1)
+          DARWIN_X64_SHA=$(grep "bh-darwin-x64$" SHA256SUMS | cut -d' ' -f1)
+          LINUX_ARM64_SHA=$(grep "bh-linux-arm64$" SHA256SUMS | cut -d' ' -f1)
+          LINUX_X64_SHA=$(grep "bh-linux-x64$" SHA256SUMS | cut -d' ' -f1)
+
+          echo "Checksums extracted:"
+          echo "  darwin-arm64: $DARWIN_ARM64_SHA"
+          echo "  darwin-x64: $DARWIN_X64_SHA"
+          echo "  linux-arm64: $LINUX_ARM64_SHA"
+          echo "  linux-x64: $LINUX_X64_SHA"
+
+          # Create updated formula using heredoc to avoid complex sed
+          cat > Formula/birdhouse.rb << 'FORMULA'
+          class Birdhouse < Formula
+            desc "CLI tool for managing GitHub workflow templates and daily thread automation"
+            homepage "https://github.com/birdcar/birdhouse"
+            version "VERSION_PLACEHOLDER"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-darwin-arm64"
+                sha256 "DARWIN_ARM64_SHA_PLACEHOLDER"
+              end
+              on_intel do
+                url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-darwin-x64"
+                sha256 "DARWIN_X64_SHA_PLACEHOLDER"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-linux-arm64"
+                sha256 "LINUX_ARM64_SHA_PLACEHOLDER"
+              end
+              on_intel do
+                url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-linux-x64"
+                sha256 "LINUX_X64_SHA_PLACEHOLDER"
+              end
+            end
+
+            def install
+              bin.install Dir["bh-*"].first => "bh"
+              bin.install_symlink "bh" => "birdhouse"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/bh --version")
+            end
+          end
+          FORMULA
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/birdhouse.rb
+
+          # Replace placeholders with actual values
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION_NUM}/" Formula/birdhouse.rb
+          sed -i "s/DARWIN_ARM64_SHA_PLACEHOLDER/${DARWIN_ARM64_SHA}/" Formula/birdhouse.rb
+          sed -i "s/DARWIN_X64_SHA_PLACEHOLDER/${DARWIN_X64_SHA}/" Formula/birdhouse.rb
+          sed -i "s/LINUX_ARM64_SHA_PLACEHOLDER/${LINUX_ARM64_SHA}/" Formula/birdhouse.rb
+          sed -i "s/LINUX_X64_SHA_PLACEHOLDER/${LINUX_X64_SHA}/" Formula/birdhouse.rb
+
+          echo "Updated formula:"
+          cat Formula/birdhouse.rb
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/birdhouse.rb
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Update birdhouse to ${VERSION}"
+          git push
