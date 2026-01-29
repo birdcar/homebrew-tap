@@ -1,28 +1,28 @@
 class Birdhouse < Formula
   desc "CLI tool for managing GitHub workflow templates and daily thread automation"
   homepage "https://github.com/birdcar/birdhouse"
-  version "0.1.19"
+  version "0.1.20"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-darwin-arm64"
-      sha256 "83f9f03bae1dbd759f3ba77404b4f33e3d94d6abbbf7f3066ff714040d614192"
+      sha256 "5732cf47edb0b9a76f60aa5e4c2c053913aa4cd6844295905a545124d108a919"
     end
     on_intel do
       url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-darwin-x64"
-      sha256 "62b164d61a024469d053503377314a2ba8a32674fc2cfac6679754b6dd191858"
+      sha256 "5f1a7321037e537877ce15cd960592e4c8a146267560343ae49a0a20dc1600ec"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-linux-arm64"
-      sha256 "dba3caaccaeb30214df8594dab2c9bdeed0fe4013a681af10e5ca61c679194c4"
+      sha256 "c9666dd179184c973c3957d020fc1f3b28b99cffaad0428ffa966d4dd7b0e8f3"
     end
     on_intel do
       url "https://github.com/birdcar/birdhouse/releases/download/v#{version}/bh-linux-x64"
-      sha256 "20afad7aabe5dcc8e9a8c7a1f87873c1272e76270b1faeac1ead845f993621df"
+      sha256 "08a6aecab2ac12ca2a9ace7dfaa19bbdc1f89f90242f8483178e330a32d7df35"
     end
   end
 
